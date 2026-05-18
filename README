@@ -19,3 +19,9 @@ Model Rail Electronics DS104 available here:
 https://modelrailelectronics.com/en/products/ds104/
 
 
+
+
+Note that you will only be able to use the DS104 with the RT_DCD_16 if you install this program on the DS104 Arduino Nano.
+
+The DS-Configurator doesn't work with this program.
+
