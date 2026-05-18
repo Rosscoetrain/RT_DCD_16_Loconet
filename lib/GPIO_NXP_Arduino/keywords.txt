@@ -1,0 +1,178 @@
+##########
+# classes
+##########
+
+GPIO_base	KEYWORD1
+PCAL6xxx_base	KEYWORD1
+PCAL6408A	KEYWORD1
+PCAL6416A	KEYWORD1
+PCAL6524	KEYWORD1
+PCAL6534	KEYWORD1
+
+##########
+# methods and functions
+##########
+
+begin	KEYWORD2
+init	KEYWORD2
+irefall	KEYWORD2
+pwm	KEYWORD2
+
+begin	KEYWORD2
+output	KEYWORD2
+input	KEYWORD2
+config	KEYWORD2
+write_port	KEYWORD2
+write_port16	KEYWORD2
+read_port	KEYWORD2
+read_port16	KEYWORD2
+print_bin	KEYWORD2
+
+##########
+# register names
+##########
+
+Configuration	KEYWORD3
+Configuration_port_0	KEYWORD3
+Configuration_port_1	KEYWORD3
+Configuration_port_2	KEYWORD3
+Configuration_port_3	KEYWORD3
+Configuration_port_4	KEYWORD3
+Individual_pin_output_port_0_configuration_register	KEYWORD3
+Individual_pin_output_port_1_configuration_register	KEYWORD3
+Individual_pin_output_port_2_configuration_register	KEYWORD3
+Individual_pin_output_port_3_configuration_register	KEYWORD3
+Individual_pin_output_port_4_configuration_register	KEYWORD3
+Input_Port	KEYWORD3
+Input_Port_0	KEYWORD3
+Input_Port_1	KEYWORD3
+Input_Port_2	KEYWORD3
+Input_Port_3	KEYWORD3
+Input_Port_4	KEYWORD3
+Input_latch	KEYWORD3
+Input_latch_register_0	KEYWORD3
+Input_latch_register_1	KEYWORD3
+Input_latch_register_port_0	KEYWORD3
+Input_latch_register_port_1	KEYWORD3
+Input_latch_register_port_2	KEYWORD3
+Input_latch_register_port_3	KEYWORD3
+Input_latch_register_port_4	KEYWORD3
+Input_status_port_0	KEYWORD3
+Input_status_port_1	KEYWORD3
+Input_status_port_2	KEYWORD3
+Input_status_port_3	KEYWORD3
+Input_status_port_4	KEYWORD3
+Interrupt_clear_register_port_0	KEYWORD3
+Interrupt_clear_register_port_1	KEYWORD3
+Interrupt_clear_register_port_2	KEYWORD3
+Interrupt_clear_register_port_3	KEYWORD3
+Interrupt_clear_register_port_4	KEYWORD3
+Interrupt_edge_register_port_0A	KEYWORD3
+Interrupt_edge_register_port_0B	KEYWORD3
+Interrupt_edge_register_port_1A	KEYWORD3
+Interrupt_edge_register_port_1B	KEYWORD3
+Interrupt_edge_register_port_2A	KEYWORD3
+Interrupt_edge_register_port_2B	KEYWORD3
+Interrupt_edge_register_port_3A	KEYWORD3
+Interrupt_edge_register_port_3B	KEYWORD3
+Interrupt_edge_register_port_4A	KEYWORD3
+Interrupt_mask	KEYWORD3
+Interrupt_mask_register_0	KEYWORD3
+Interrupt_mask_register_1	KEYWORD3
+Interrupt_mask_register_port_0	KEYWORD3
+Interrupt_mask_register_port_1	KEYWORD3
+Interrupt_mask_register_port_2	KEYWORD3
+Interrupt_mask_register_port_3	KEYWORD3
+Interrupt_mask_register_port_4	KEYWORD3
+Interrupt_status	KEYWORD3
+Interrupt_status_register_0	KEYWORD3
+Interrupt_status_register_1	KEYWORD3
+Interrupt_status_register_port_0	KEYWORD3
+Interrupt_status_register_port_1	KEYWORD3
+Interrupt_status_register_port_2	KEYWORD3
+Interrupt_status_register_port_3	KEYWORD3
+Interrupt_status_register_port_4	KEYWORD3
+Output_Port	KEYWORD3
+Output_Port_0	KEYWORD3
+Output_Port_1	KEYWORD3
+Output_Port_2	KEYWORD3
+Output_Port_3	KEYWORD3
+Output_Port_4	KEYWORD3
+Output_drive_strength_0	KEYWORD3
+Output_drive_strength_1	KEYWORD3
+Output_drive_strength_register_0	KEYWORD3
+Output_drive_strength_register_0B	KEYWORD3
+Output_drive_strength_register_1	KEYWORD3
+Output_drive_strength_register_1B	KEYWORD3
+Output_drive_strength_register_port_0A	KEYWORD3
+Output_drive_strength_register_port_0B	KEYWORD3
+Output_drive_strength_register_port_1A	KEYWORD3
+Output_drive_strength_register_port_1B	KEYWORD3
+Output_drive_strength_register_port_2A	KEYWORD3
+Output_drive_strength_register_port_2B	KEYWORD3
+Output_drive_strength_register_port_3A	KEYWORD3
+Output_drive_strength_register_port_3B	KEYWORD3
+Output_drive_strength_register_port_4A	KEYWORD3
+Output_port_configuration	KEYWORD3
+Output_port_configuration_register	KEYWORD3
+Polarity_Inversion	KEYWORD3
+Polarity_Inversion_port_0	KEYWORD3
+Polarity_Inversion_port_1	KEYWORD3
+Polarity_Inversion_port_2	KEYWORD3
+Polarity_Inversion_port_3	KEYWORD3
+Polarity_Inversion_port_4	KEYWORD3
+Pull_up_pull_down_enable	KEYWORD3
+Pull_up_pull_down_enable_register_0	KEYWORD3
+Pull_up_pull_down_enable_register_1	KEYWORD3
+Pull_up_pull_down_enable_register_port_0	KEYWORD3
+Pull_up_pull_down_enable_register_port_1	KEYWORD3
+Pull_up_pull_down_enable_register_port_2	KEYWORD3
+Pull_up_pull_down_enable_register_port_3	KEYWORD3
+Pull_up_pull_down_enable_register_port_4	KEYWORD3
+Pull_up_pull_down_selection	KEYWORD3
+Pull_up_pull_down_selection_register_0	KEYWORD3
+Pull_up_pull_down_selection_register_1	KEYWORD3
+Pull_up_pull_down_selection_register_port_0	KEYWORD3
+Pull_up_pull_down_selection_register_port_1	KEYWORD3
+Pull_up_pull_down_selection_register_port_2	KEYWORD3
+Pull_up_pull_down_selection_register_port_3	KEYWORD3
+Pull_up_pull_down_selection_register_port_4	KEYWORD3
+Switch_debounce_count	KEYWORD3
+Switch_debounce_enable_0	KEYWORD3
+Switch_debounce_enable_1	KEYWORD3
+reserved0	KEYWORD3
+reserved1	KEYWORD3
+reserved10	KEYWORD3
+reserved11	KEYWORD3
+reserved12	KEYWORD3
+reserved13	KEYWORD3
+reserved14	KEYWORD3
+reserved15	KEYWORD3
+reserved16	KEYWORD3
+reserved17	KEYWORD3
+reserved2	KEYWORD3
+reserved3	KEYWORD3
+reserved4	KEYWORD3
+reserved5	KEYWORD3
+reserved6	KEYWORD3
+reserved7	KEYWORD3
+reserved8	KEYWORD3
+reserved9	KEYWORD3
+	
+##########
+# constants
+##########
+
+NONE	LITERAL1
+ARDUINO_SHIELD	LITERAL1
+IN	LITERAL1
+OUT	LITERAL1
+POLARITY	LITERAL1
+CONFIG	LITERAL1
+DRIVE_STRENGTH	LITERAL1
+LATCH	LITERAL1
+PULL_UD_EN	LITERAL1
+PULL_UD_SEL	LITERAL1
+INT_MASK	LITERAL1
+INT_STATUS	LITERAL1
+OUTPUT_PORT_CONFIG	LITERAL1

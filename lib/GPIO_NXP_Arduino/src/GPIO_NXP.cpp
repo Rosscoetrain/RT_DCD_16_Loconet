@@ -1,0 +1,426 @@
+#include	"GPIO_NXP.h"
+
+/* ******** GPIO_base ******** */
+
+GPIO_base::GPIO_base( uint8_t i2c_address, int nbits, const uint8_t* ar, uint8_t ai  ) :
+	I2C_device( i2c_address ), 
+	n_bits( nbits ),
+	n_ports( (nbits + 7) / 8 ),
+	auto_increment( ai ),
+	arp( ar )
+{
+	init();
+}
+
+GPIO_base::GPIO_base( TwoWire& wire, uint8_t i2c_address, int nbits, const uint8_t* ar, uint8_t ai  ) :
+	I2C_device( wire, i2c_address ), 
+	n_bits( nbits ),
+	n_ports( (nbits + 7) / 8 ),
+	auto_increment( ai ),
+	arp( ar )
+{
+	init();
+}
+
+void GPIO_base::init( void )
+{
+	constexpr uint16_t	i	= 0x0001;
+	uint8_t*			tp	= (uint8_t*)(&i);
+
+	endian	= tp[ 0 ];	//	'true' if LittleEndian
+}
+
+GPIO_base::~GPIO_base()
+{
+}
+
+void GPIO_base::begin( board env )
+{
+	if ( env ) {
+		pinMode(RESET_PIN, OUTPUT);
+		pinMode(ADDR_PIN, OUTPUT);
+
+		digitalWrite( RESET_PIN , 1 );
+		digitalWrite( ADDR_PIN , 1 );
+		digitalWrite( ADDR_PIN , 0 );
+		delay( 1 );
+	
+		digitalWrite( RESET_PIN , 0 );
+		delay( 1 );	// reset time = 500ns(min)
+		digitalWrite( RESET_PIN , 1 );
+		delay( 1 ); // reset recovery time = 600ns(min)
+	}
+}
+
+void GPIO_base::output( int port, uint8_t value, uint8_t mask )
+{
+	if ( mask )
+		bit_op8( *(arp + OUT) + port, mask, value );
+
+	write_r8( *(arp + OUT) + port, value );
+}
+
+void GPIO_base::output( const uint8_t *vp )
+{
+	write_port( OUT, vp );
+}
+
+uint8_t GPIO_base::input( int port )
+{
+	return read_r8( *(arp + IN) + port );
+}
+
+uint8_t* GPIO_base::input( uint8_t *vp )
+{
+	read_port( IN, vp );
+	
+	return vp;
+}
+
+void GPIO_base::config( int port, uint8_t config, uint8_t mask )
+{
+	if ( mask )
+		bit_op8( *(arp + CONFIG) + port, mask, config );
+
+	write_r8( *(arp + CONFIG) + port, config );
+}
+
+void GPIO_base::config( const uint8_t* vp )
+{
+	write_port( CONFIG, vp );
+}
+
+void GPIO_base::write_port( access_word w, const uint8_t* vp )
+{
+	if ( auto_increment ) {
+		reg_w( auto_increment | *(arp + w), vp, n_ports );		
+	}
+	else {
+		for ( int i = 0; i < n_ports; i++ )
+			write_r8( *(arp + w) + i, *vp++ );
+	}
+}
+
+void GPIO_base::write_port16( access_word w, const uint16_t* vp )
+{
+	uint16_t	b[ n_ports ];
+	
+	if ( endian ) {
+		uint16_t	temp;
+		for ( int i = 0; i < n_ports; i++ ) {
+			temp	= vp[ i ] << 8;
+			b[ i ]	= temp | vp[ i ] >> 8;			
+		}
+	}
+	else {
+		memcpy( b, vp, n_ports << 1 );
+	}
+	
+	int	n_bytes	= (n_bits * 2 + 7) / 8;
+
+	if ( auto_increment ) {
+		reg_w( auto_increment | *(arp + w), (uint8_t*)b, n_bytes );		
+	}
+	else {
+		for ( int i = 0; i < n_bytes; i++ )
+			write_r8( *(arp + w) + i, b[ i ] );
+	}
+}
+
+uint8_t* GPIO_base::read_port( access_word w, uint8_t* vp )
+{
+	if ( auto_increment ) {
+		reg_r( auto_increment | *(arp + w), vp, n_ports );		
+	}
+	else {
+		for ( int i = 0; i < n_ports; i++ )
+			*(vp + i)	= read_r8( *(arp + w) + i );
+	}
+	
+	return vp;
+}
+
+uint16_t*  GPIO_base::read_port16( access_word w, uint16_t* vp )
+{
+	int	n_bytes	= (n_bits * 2 + 7) / 8;
+	
+	if ( auto_increment ) {
+		reg_r( auto_increment | *(arp + w), (uint8_t*)vp, n_bytes );	
+	}
+	else {
+		for ( int i = 0; i < n_bytes; i++ )
+			*(vp + i)	= read_r8( *(arp + w) + i );		
+	}
+		
+
+	if ( endian ) {
+		uint16_t	temp;
+
+		for ( int i = 0; i < n_ports; i++ ) {
+			temp	= vp[ i ] << 8;
+			vp[ i ]	= temp | vp[ i ] >> 8;			
+		}
+	}
+	
+	return vp;
+}
+
+void GPIO_base::write_port( access_word w, uint8_t value, int port_num )
+{
+	write_r8( *(arp + w) + port_num, value );
+}
+
+void GPIO_base::write_port16( access_word w, uint16_t value, int port_num )
+{
+	write_r16( *(arp + w) + port_num, value );
+}
+
+uint8_t GPIO_base::read_port( access_word w, int port_num )
+{
+	return read_r8( *(arp + w) + port_num );
+}
+
+uint16_t GPIO_base::read_port16( access_word w, int port_num )
+{
+	return read_r16( *(arp + w) + port_num );
+}
+
+void GPIO_base::print_bin( uint8_t v )
+{
+	Serial.print(" 0b");
+	for (int i = 7; 0 <= i; i-- )
+		Serial.print(((v >> i) & 0x1) ? "1" : "0");
+}
+
+
+/* ******** PCA9554 ******** */
+
+PCA9554::PCA9554( uint8_t i2c_address ) :
+	GPIO_base( i2c_address, 8, access_ref, 0x00 )
+{
+}
+
+PCA9554::PCA9554( TwoWire& wire, uint8_t i2c_address ) :
+	GPIO_base( wire, i2c_address, 8, access_ref, 0x00 )
+{
+}
+
+PCA9554::~PCA9554()
+{
+}
+
+constexpr uint8_t PCA9554::access_ref[];
+
+
+/* ******** PCA9555 ******** */
+
+PCA9555::PCA9555( uint8_t i2c_address ) :
+	GPIO_base( i2c_address, 16, access_ref, 0x00 )
+{
+}
+
+PCA9555::PCA9555( TwoWire& wire, uint8_t i2c_address ) :
+	GPIO_base( wire, i2c_address, 8, access_ref, 0x00 )
+{
+}
+
+PCA9555::~PCA9555()
+{
+}
+
+constexpr uint8_t PCA9555::access_ref[];
+
+
+/* ******** PCAL6xxx_base ******** */
+
+PCAL6xxx_base::PCAL6xxx_base( uint8_t i2c_address, const int nbits, const uint8_t arp[], uint8_t ai ) :
+	GPIO_base( i2c_address, nbits, arp, ai )
+{
+}
+
+PCAL6xxx_base::PCAL6xxx_base( TwoWire& wire, uint8_t i2c_address, const int nbits, const uint8_t arp[], uint8_t ai ) :
+	GPIO_base( wire, i2c_address, nbits, arp, ai )
+{
+}
+
+PCAL6xxx_base::~PCAL6xxx_base()
+{
+}
+
+
+/* ******** PCAL6408A ******** */
+
+PCAL6408A::PCAL6408A( uint8_t i2c_address ) :
+	PCAL6xxx_base( i2c_address, 8, access_ref, 0 )
+{
+}
+
+PCAL6408A::PCAL6408A( TwoWire& wire, uint8_t i2c_address ) :
+	PCAL6xxx_base( wire, i2c_address, 8, access_ref, 0 )
+{
+}
+
+PCAL6408A::~PCAL6408A()
+{
+}
+
+constexpr uint8_t PCAL6408A::access_ref[];
+
+
+/* ******** PCAL6416A ******** */
+
+PCAL6416A::PCAL6416A( uint8_t i2c_address ) :
+	PCAL6xxx_base( i2c_address, 16, access_ref, 0 )
+{
+}
+
+PCAL6416A::PCAL6416A( TwoWire& wire, uint8_t i2c_address ) :
+	PCAL6xxx_base( wire, i2c_address, 8, access_ref, 0 )
+{
+}
+
+PCAL6416A::~PCAL6416A()
+{
+}
+
+constexpr uint8_t PCAL6416A::access_ref[];
+
+
+/* ******** PCAL6524 ******** */
+
+PCAL6524::PCAL6524( uint8_t i2c_address ) :
+	PCAL6xxx_base( i2c_address, 24, access_ref, 0x80 )
+{
+}
+
+PCAL6524::PCAL6524( TwoWire& wire, uint8_t i2c_address ) :
+	PCAL6xxx_base( wire, i2c_address, 8, access_ref, 0 )
+{
+}
+
+PCAL6524::~PCAL6524()
+{
+}
+
+constexpr uint8_t PCAL6524::access_ref[];
+
+
+/* ******** PCAL6534 ******** */
+
+PCAL6534::PCAL6534( uint8_t i2c_address ) :
+	PCAL6xxx_base( i2c_address, 34, access_ref, 0x80 )
+{
+}
+
+PCAL6534::PCAL6534( TwoWire& wire, uint8_t i2c_address ) :
+	PCAL6xxx_base( wire, i2c_address, 8, access_ref, 0 )
+{
+}
+
+PCAL6534::~PCAL6534()
+{
+}
+
+constexpr uint8_t PCAL6534::access_ref[];
+
+
+/* ******** PCAL9722 ******** */
+
+GPIO_SPI::GPIO_SPI( uint8_t dev_address, int nbits, const uint8_t* arp, uint8_t ai )
+	: GPIO_base( dev_address, nbits, arp, ai )
+{
+	spi_setting	= SPISettings( 1000000, MSBFIRST, SPI_MODE0 );
+}
+
+GPIO_SPI::~GPIO_SPI()
+{
+}
+
+int GPIO_SPI::reg_w( uint8_t reg_adr, const uint8_t *data, uint16_t size )
+{
+	uint8_t	w_data[ size + 2 ];
+	uint8_t	r_data[ size + 2 ];
+	
+	w_data[ 0 ]	= (i2c_addr << 1);
+	w_data[ 1 ]	= reg_adr | auto_increment;
+	memcpy( w_data + 2, data, size );
+	
+	txrx( w_data, r_data, size + 2 );
+	
+	return size;
+}
+
+int GPIO_SPI::reg_w( uint8_t reg_adr, uint8_t data )
+{
+	uint8_t	w_data[ 3 ];
+	uint8_t	r_data[ 3 ];
+	
+	w_data[ 0 ]	= i2c_addr << 1;
+	w_data[ 1 ]	= reg_adr;
+	w_data[ 2 ]	= data;
+	
+	txrx( w_data, r_data, 3 );
+	
+	return 1;
+}
+
+int GPIO_SPI::reg_r( uint8_t reg_adr, uint8_t *data, uint16_t size )
+{
+	uint8_t	w_data[ size + 2 ]	= { 0 };
+	uint8_t	r_data[ size + 2 ];
+
+	w_data[ 0 ]	= (i2c_addr << 1) | 0x1;
+	w_data[ 1 ]	= reg_adr | auto_increment;
+
+	txrx( w_data, r_data, size + 2 );
+	
+	memcpy( data, r_data + 2, size );
+
+	return size;
+}
+
+uint8_t GPIO_SPI::reg_r( uint8_t reg_adr )
+{
+	uint8_t	w_data[ 3 ];
+	uint8_t	r_data[ 3 ];
+	
+	w_data[ 0 ]	= (i2c_addr << 1) | 0x1;
+	w_data[ 1 ]	= reg_adr;
+	w_data[ 2 ]	= 0;
+	
+	txrx( w_data, r_data, 3 );
+	
+	return r_data[ 2 ];
+} 
+
+PCAL97xx_base::PCAL97xx_base( uint8_t dev_address, const int nbits, const uint8_t arp[], uint8_t ai ) :
+	GPIO_SPI( dev_address, nbits, arp, ai )
+{
+}
+
+PCAL97xx_base::~PCAL97xx_base()
+{
+}
+
+
+PCAL9722::PCAL9722( uint8_t dev_address ) :
+	PCAL97xx_base( dev_address, 24, access_ref, 0x80 )
+{
+}
+
+PCAL9722::~PCAL9722()
+{
+}
+
+void PCAL9722::begin( board env )
+{
+	if ( env ) {
+		pinMode( RESET_PIN_PCAL9722, OUTPUT );
+		digitalWrite( RESET_PIN_PCAL9722, 0 );
+		delay( 1 );
+		digitalWrite( RESET_PIN_PCAL9722, 1 );
+	}
+}
+
+constexpr uint8_t PCAL9722::access_ref[];
+
