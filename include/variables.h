@@ -8,20 +8,23 @@
 #define VARIABLES_H
 
 
-uint8_t i2cAddress = 0x20;
 
-PCA9555 *tca;
+// Variable to hold our runtime Base Address
+uint16_t baseSensorAddress = DEFAULT_BASE_ADDRESS;
 
+// Array of object pointers for discovered chips
+PCA9555* pcaModules[MAX_CHIPS] = {nullptr};
 
-// Adress Switch on the pcb
-// TODO when pcb designed then set these
-//int adrr_switch[4] = { 5, 4, 3, 2 };
-uint8_t address = 100;   // Byte to store Address (Only the 4 LSB are used)
+// Tracks the actual I2C addresses found during boot scan
+uint8_t discoveredAddresses[MAX_CHIPS] = {0};
 
+// Tracks total count of active hardware modules detected
+uint8_t totalChipsFound = 0;
 
-// Starting address for your LocoNet sensors
-uint8_t startAddress = 1;
-uint16_t lastStates = 0xFFFF; // Store last known states of all 16 pins
+// Array to store the 16-bit state maps of all discovered chips
+uint16_t lastPinStatesArray[MAX_CHIPS] = {0xFFFF};
 
-uint16_t previousMillis = 0;
+// Non-blocking time tracking variable
+unsigned long lastPollTime = 0;
+
 #endif

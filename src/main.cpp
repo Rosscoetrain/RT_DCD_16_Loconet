@@ -1,141 +1,231 @@
 /*
  *
- * Copyright 2026 Ross Scanlon @ RosscoeTrain
  *
- * 
- * Loconet producer to check TCA9555 for sensor inputs
- * 
- * 
+ *
+ *
+ * Loconet TCA/PCA9555 interface
+ *
+ * Using RT_DCD_16 or RT_PCA9555 boards interfaces loconet via a
+ *
+ * Model Rail Enginering DS104 board.
+ *
+ * This checks for all TCA/PCA9555 boards and adds them to the sensor list.
+ *
+ * Base Loconet address is configurable via serial monitor using <A address> command.
+ *
+ * Base Loconet address can be 1 to 3900 this allows for 8 TCA/PCA9555 boards with sixteen inputs on each.
+ *
+ *
+ *
+ *
+ *
+ *
  */
 
 #include <Arduino.h>
-
-#include <EEPROM.h>
-#include <LocoNet.h>
-//#include <TCA9555.h>
-#include <PCA9555.h>
 #include <Wire.h>
+#include <TCA9555.h>
+#include <LocoNet.h>
+#include <EEPROM.h>
 
 #include "defines.h"
 #include "variables.h"
 #include "functions.h"
 
-
-void setup() {
-  Serial.begin(115200);
-
-  Wire.begin();
-
-  i2cAddress = getTCA9555Address();
-
-  if (i2cAddress)
-   {
-    Serial.print("Hello TCA9555 at 0x");
-    Serial.println(i2cAddress, HEX);
-   }
-  else
-   {
-    Serial.println("No TCA9555 found");
-    while (1)
-     {
-     }
-   }   
-
-  // Initialize LocoNet (Pins 7 and 8 are standard for most interfaces)
-  LocoNet.init(LOCONET_TX_PIN);
-  
-  // Initialize TCA9555
-//  tca = new TCA9555(i2cAddress);
-  tca = new PCA9555(i2cAddress);
-
-//  if (!tca.begin()) {
-//    // Handle initialization error if needed
-//  }
-
 /*
-  // Read Address Pins
-  //  TODO work out where these are connected.
+void setup() {
+    Serial.begin(57600);
+    Wire.begin();
+    Serial.println("\n--- Multi-Chip LocoNet Sensor Node Starting ---");
 
-  for (int i = 0; i < 4; i++) {
-   pinMode(adrr_switch[i], INPUT_PULLUP);
-   boolean reading = !digitalRead(adrr_switch[i]);
-   bitWrite(address, i, reading);
-  }
-*/
+    // Load or initialize the base sensor address from EEPROM
+    initializeBaseAddress();
 
-  address++;
+    // Scan for and initialize every connected PCA9555 module
+    scanAndInitAllChips();
 
-  if(EEPROM.read(0) == address) {
-    Serial.println("Address matches EEPROM");
-  } else {
-    Serial.println("Address Changed");
-    EEPROM.write(0, address);
-  }
+    if (totalChipsFound == 0) {
+        Serial.println("CRITICAL ERROR: No PCA9555 chips found in range 0x20-0x27!");
+        while (1);
+    }
 
-  startAddress = address;
+    // Initialize LocoNet on standard pins
+    LocoNet.init(LN_TX_PIN);
+    Serial.println("LocoNet interface initialized.");
 
-  Serial.print("start address : ");
-  Serial.println(startAddress);
+    // Loop through all chips and all pins to broadcast initial startup states
+    Serial.println("Sending initial state reports for all discovered inputs...");
+    for (uint8_t chipIdx = 0; chipIdx < totalChipsFound; chipIdx++) {
+        // Read baseline and cache it
+        lastPinStatesArray[chipIdx] = pcaModules[chipIdx]->read16();
 
-  // Set all 16 pins of PCA9555 as INPUT
-//  tca->pinMode16(0xFFFF);
+        // Calculate address offset for this specific chip's block of 16 sensors
+        uint16_t chipBaseAddress = baseSensorAddress + (chipIdx * PINS_PER_CHIP);
 
-  uint8_t io_config_and_pull_up[] = {
-    0xFF,  // Configure port0 as INPUT
-    0xFF,  // Configure port1 as INPUT
-  };
+        for (int pinIdx = 0; pinIdx < PINS_PER_CHIP; pinIdx++) {
+            bool currentBit = bitRead(lastPinStatesArray[chipIdx], pinIdx);
+            uint16_t sensorAddress = chipBaseAddress + pinIdx;
+            bool isActive = (currentBit == LOW); // LOW means grounded/occupied
 
-  tca->config(io_config_and_pull_up);  //  Port0 as INPUT, port1 as INPUT    
+            transmitSensorReport(sensorAddress, isActive);
+            delay(150); // Safe pacing delay for startup burst traffic
+        }
+    }
 
-
-  Serial.println("Init done");
-
-  Serial.println(lastStates, BIN);
+    Serial.println("System Ready. Monitoring all connected expansion inputs.");
+    Serial.println("To change base address, send '<A address>' or '<a address>' (e.g., <A 100>).");
 }
 
 void loop() {
-  uint16_t currentMillis = millis();
+    // Check if the user is trying to update configuration via Serial
+    checkSerialForConfig();
 
-  // 1. Handle incoming LocoNet messages (required by library)
-  lnMsg *LnPacket = LocoNet.receive();
-  if (LnPacket) {
-    LocoNet.processSwitchSensorMessage(LnPacket);
-  }
+    // Sequentially poll each discovered chip
+    for (uint8_t chipIdx = 0; chipIdx < totalChipsFound; chipIdx++) {
+        uint16_t currentPinStates = pcaModules[chipIdx]->read16();
 
-  // 2. Read all 16 pins from TCA9555
-//  uint16_t currentStates = tca->read16();
+        // Check if any pins on this specific chip have toggled state
+        if (currentPinStates != lastPinStatesArray[chipIdx]) {
 
-  uint8_t input_0 = tca->input(0);
-  uint8_t input_1 = tca->input(1);
-  uint16_t currentStates = (input_1 << 8) | input_0;
+            // Calculate starting LocoNet address for this chip block
+            uint16_t chipBaseAddress = baseSensorAddress + (chipIdx * PINS_PER_CHIP);
 
+            for (int pinIdx = 0; pinIdx < PINS_PER_CHIP; pinIdx++) {
+                bool currentBit = bitRead(currentPinStates, pinIdx);
+                bool lastBit = bitRead(lastPinStatesArray[chipIdx], pinIdx);
 
+                if (currentBit != lastBit) {
+                    uint16_t sensorAddress = chipBaseAddress + pinIdx;
+                    bool isActive = (currentBit == LOW);
 
-  // 3. Check for state changes
-  if (currentStates != lastStates)
-   {
-    Serial.println(lastStates, BIN);
-    Serial.println(currentStates, BIN);
-    for (int i = 0; i < 16; i++) {
-      bool currentState = bitRead(currentStates, i);
-      bool lastState = bitRead(lastStates, i);
+                    transmitSensorReport(sensorAddress, isActive);
 
-      if (currentState != lastState) {
-        // Sensor state changed! Send LocoNet message.
-        // LocoNet sensor values: 1 for Active/Occupied, 0 for Inactive/Free
-        // Note: Logic depends on your hardware (active-low vs active-high)
-        int sensorValue = currentState ? 0 : 1;
-
-        Serial.print("Sensor : ");
-        Serial.println(i + 1);
-
-        LocoNet.reportSensor(startAddress + i, sensorValue);
-      }
+                    Serial.print("Chip @ 0x");
+                    Serial.print(discoveredAddresses[chipIdx], HEX);
+                    Serial.print(" Pin ");
+                    Serial.print(pinIdx);
+                    Serial.print(" -> Address ");
+                    Serial.print(sensorAddress);
+                    Serial.println(isActive ? " ACTIVE" : " INACTIVE");
+                }
+            }
+            // Update individual cache tracking for this chip index
+            lastPinStatesArray[chipIdx] = currentPinStates;
+            delay(50); // Small local debounce buffer spacing
+        }
     }
-    lastStates = currentStates; // Update memory
-  }
 
-  while (currentMillis < previousMillis + WAIT_MILLIS)
-   {}
-  previousMillis = currentMillis;
+    // Process incoming LocoNet traffic to maintain network health
+    lnMsg* inMsg = LocoNet.receive();
+    if (inMsg) {
+        // Optional tracking logic can go here
+    }
 }
+*/
+
+void setup() {
+    Serial.begin(57600);
+    Wire.begin();
+    Serial.println("\n--- Non-Blocking Multi-Chip LocoNet Sensor Node Starting ---");
+
+    // Load or initialize the base sensor address from EEPROM
+    initializeBaseAddress();
+
+    // Scan for and initialize every connected PCA9555 module
+    scanAndInitAllChips();
+
+    if (totalChipsFound == 0) {
+        Serial.println("CRITICAL ERROR: No PCA9555 chips found in range 0x20-0x27!");
+        while (1); 
+    }
+
+    // Initialize LocoNet on standard pins
+    LocoNet.init(LN_TX_PIN);
+    Serial.println("LocoNet interface initialized.");
+
+    // Loop through all chips and all pins to broadcast initial startup states
+    Serial.println("Sending initial state reports for all discovered inputs...");
+    for (uint8_t chipIdx = 0; chipIdx < totalChipsFound; chipIdx++) {
+        // Read baseline and cache it
+        lastPinStatesArray[chipIdx] = pcaModules[chipIdx]->read16();
+
+        // Calculate address offset for this specific chip's block of 16 sensors
+        uint16_t chipBaseAddress = baseSensorAddress + (chipIdx * PINS_PER_CHIP);
+
+        for (int pinIdx = 0; pinIdx < PINS_PER_CHIP; pinIdx++) {
+            bool currentBit = bitRead(lastPinStatesArray[chipIdx], pinIdx);
+            uint16_t sensorAddress = chipBaseAddress + pinIdx;
+            bool isActive = (currentBit == LOW); // LOW means grounded/occupied
+
+            transmitSensorReport(sensorAddress, isActive);
+            
+            // Startup network buffer pacing can safely keep a small delay, 
+            // as setup() only executes once at boot time.
+            delay(WAIT_MILLIS_LONG); 
+        }
+    }
+
+    Serial.println("System Ready. Monitoring all connected expansion inputs.");
+    Serial.println("To change base address, send '<A address>' or '<a address>' (e.g., <A 100>).");
+    
+    // Seed our tracking timestamp right before opening up the main loop execution
+    lastPollTime = millis();
+}
+
+void loop() {
+    // Check if the user is trying to update configuration via Serial (Completely non-blocking)
+    checkSerialForConfig();
+
+    // Capture the snapshot of the current microcontroller runtime clock
+    unsigned long currentMillis = millis();
+
+    // Non-blocking wrapper: Only query I2C bus at set intervals
+    if (currentMillis - lastPollTime >= WAIT_MILLIS_SHORT) {
+        lastPollTime = currentMillis; // Advance timer stamp
+
+        // Sequentially poll each discovered chip
+        for (uint8_t chipIdx = 0; chipIdx < totalChipsFound; chipIdx++) {
+            uint16_t currentPinStates = pcaModules[chipIdx]->read16();
+
+            // Check if any pins on this specific chip have toggled state
+            if (currentPinStates != lastPinStatesArray[chipIdx]) {
+                
+                // Calculate starting LocoNet address for this chip block
+                uint16_t chipBaseAddress = baseSensorAddress + (chipIdx * PINS_PER_CHIP);
+
+                for (int pinIdx = 0; pinIdx < PINS_PER_CHIP; pinIdx++) {
+                    bool currentBit = bitRead(currentPinStates, pinIdx);
+                    bool lastBit = bitRead(lastPinStatesArray[chipIdx], pinIdx);
+
+                    if (currentBit != lastBit) {
+                        uint16_t sensorAddress = chipBaseAddress + pinIdx;
+                        bool isActive = (currentBit == LOW);
+
+                        transmitSensorReport(sensorAddress, isActive);
+
+                        Serial.print("Chip @ 0x");
+                        Serial.print(discoveredAddresses[chipIdx], HEX);
+                        Serial.print(" Pin ");
+                        Serial.print(pinIdx);
+                        Serial.print(" -> Address ");
+                        Serial.print(sensorAddress);
+                        Serial.println(isActive ? " ACTIVE" : " INACTIVE");
+                    }
+                }
+                // Update individual cache tracking for this chip index
+                lastPinStatesArray[chipIdx] = currentPinStates;
+            }
+        }
+    }
+
+    // Process incoming LocoNet traffic to maintain network health.
+    // Because delay() is gone, this function executes tens of thousands of times 
+    // per second, completely eliminating packet dropping on busy LocoNet layouts.
+    lnMsg* inMsg = LocoNet.receive();
+    if (inMsg) {
+        // Optional tracking logic can go here
+    }
+}
+
+
+

@@ -1,0 +1,251 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <TCA9555.h> 
+#include <LocoNet.h>
+#include <EEPROM.h>    
+
+// LocoNet Pin Configuration
+#define LN_RX_PIN 8
+#define LN_TX_PIN 6
+
+// EEPROM Memory Mapping
+#define EEPROM_BASE_ADDR_LOCATION 0 
+#define DEFAULT_BASE_ADDRESS 1      
+
+// Maximum possible PCA9555 chips on a single I2C bus segment (0x20 to 0x27)
+#define MAX_CHIPS 8
+#define PINS_PER_CHIP 16
+
+// Non-blocking Polling Interval (50ms = Poll I2C 20 times per second)
+#define I2C_POLL_INTERVAL_MS 50
+
+// Variable to hold our runtime Base Address
+uint16_t baseSensorAddress = DEFAULT_BASE_ADDRESS;
+
+// Array of object pointers for discovered chips
+PCA9555* pcaModules[MAX_CHIPS] = {nullptr};
+
+// Tracks the actual I2C addresses found during boot scan
+uint8_t discoveredAddresses[MAX_CHIPS] = {0};
+
+// Tracks total count of active hardware modules detected
+uint8_t totalChipsFound = 0;
+
+// Array to store the 16-bit state maps of all discovered chips
+uint16_t lastPinStatesArray[MAX_CHIPS] = {0xFFFF};
+
+// Non-blocking time tracking variable
+unsigned long lastPollTime = 0;
+
+// Forward declarations
+void transmitSensorReport(uint16_t address, bool active);
+void scanAndInitAllChips();
+void initializeBaseAddress();
+void checkSerialForConfig();
+
+void setup() {
+    Serial.begin(57600);
+    Wire.begin();
+    Serial.println("\n--- Non-Blocking Multi-Chip LocoNet Sensor Node Starting ---");
+
+    // Load or initialize the base sensor address from EEPROM
+    initializeBaseAddress();
+
+    // Scan for and initialize every connected PCA9555 module
+    scanAndInitAllChips();
+
+    if (totalChipsFound == 0) {
+        Serial.println("CRITICAL ERROR: No PCA9555 chips found in range 0x20-0x27!");
+        while (1); 
+    }
+
+    // Initialize LocoNet on standard pins
+    LocoNet.init(LN_TX_PIN);
+    Serial.println("LocoNet interface initialized.");
+
+    // Loop through all chips and all pins to broadcast initial startup states
+    Serial.println("Sending initial state reports for all discovered inputs...");
+    for (uint8_t chipIdx = 0; chipIdx < totalChipsFound; chipIdx++) {
+        // Read baseline and cache it
+        lastPinStatesArray[chipIdx] = pcaModules[chipIdx]->read16();
+
+        // Calculate address offset for this specific chip's block of 16 sensors
+        uint16_t chipBaseAddress = baseSensorAddress + (chipIdx * PINS_PER_CHIP);
+
+        for (int pinIdx = 0; pinIdx < PINS_PER_CHIP; pinIdx++) {
+            bool currentBit = bitRead(lastPinStatesArray[chipIdx], pinIdx);
+            uint16_t sensorAddress = chipBaseAddress + pinIdx;
+            bool isActive = (currentBit == LOW); // LOW means grounded/occupied
+
+            transmitSensorReport(sensorAddress, isActive);
+            
+            // Startup network buffer pacing can safely keep a small delay, 
+            // as setup() only executes once at boot time.
+            delay(25); 
+        }
+    }
+
+    Serial.println("System Ready. Monitoring all connected expansion inputs.");
+    Serial.println("To change base address, send '<A address>' or '<a address>' (e.g., <A 100>).");
+    
+    // Seed our tracking timestamp right before opening up the main loop execution
+    lastPollTime = millis();
+}
+
+void loop() {
+    // Check if the user is trying to update configuration via Serial (Completely non-blocking)
+    checkSerialForConfig();
+
+    // Capture the snapshot of the current microcontroller runtime clock
+    unsigned long currentMillis = millis();
+
+    // Non-blocking wrapper: Only query I2C bus at set intervals
+    if (currentMillis - lastPollTime >= I2C_POLL_INTERVAL_MS) {
+        lastPollTime = currentMillis; // Advance timer stamp
+
+        // Sequentially poll each discovered chip
+        for (uint8_t chipIdx = 0; chipIdx < totalChipsFound; chipIdx++) {
+            uint16_t currentPinStates = pcaModules[chipIdx]->read16();
+
+            // Check if any pins on this specific chip have toggled state
+            if (currentPinStates != lastPinStatesArray[chipIdx]) {
+                
+                // Calculate starting LocoNet address for this chip block
+                uint16_t chipBaseAddress = baseSensorAddress + (chipIdx * PINS_PER_CHIP);
+
+                for (int pinIdx = 0; pinIdx < PINS_PER_CHIP; pinIdx++) {
+                    bool currentBit = bitRead(currentPinStates, pinIdx);
+                    bool lastBit = bitRead(lastPinStatesArray[chipIdx], pinIdx);
+
+                    if (currentBit != lastBit) {
+                        uint16_t sensorAddress = chipBaseAddress + pinIdx;
+                        bool isActive = (currentBit == LOW);
+
+                        transmitSensorReport(sensorAddress, isActive);
+
+                        Serial.print("Chip @ 0x");
+                        Serial.print(discoveredAddresses[chipIdx], HEX);
+                        Serial.print(" Pin ");
+                        Serial.print(pinIdx);
+                        Serial.print(" -> Address ");
+                        Serial.print(sensorAddress);
+                        Serial.println(isActive ? " ACTIVE" : " INACTIVE");
+                    }
+                }
+                // Update individual cache tracking for this chip index
+                lastPinStatesArray[chipIdx] = currentPinStates;
+            }
+        }
+    }
+
+    // Process incoming LocoNet traffic to maintain network health.
+    // Because delay() is gone, this function executes tens of thousands of times 
+    // per second, completely eliminating packet dropping on busy LocoNet layouts.
+    lnMsg* inMsg = LocoNet.receive();
+    if (inMsg) {
+        // Optional tracking logic can go here
+    }
+}
+
+// Scans entire addressing block and registers every healthy chip found
+void scanAndInitAllChips() {
+    Serial.println("Scanning I2C bus for all available PCA9555 modules...");
+    totalChipsFound = 0;
+
+    for (uint8_t address = 0x20; address <= 0x27; address++) {
+        Wire.beginTransmission(address);
+        uint8_t error = Wire.endTransmission();
+
+        if (error == 0) {
+            Serial.print("Found hardware instance at I2C address: 0x");
+            Serial.println(address, HEX);
+
+            // Dynamically instantiate object inside our structural tracking array
+            pcaModules[totalChipsFound] = new PCA9555(address);
+
+            // Initialize the newly provisioned module
+            if (pcaModules[totalChipsFound]->begin(INPUT)) {
+                discoveredAddresses[totalChipsFound] = address;
+                
+                uint16_t startAddr = baseSensorAddress + (totalChipsFound * PINS_PER_CHIP);
+                uint16_t endAddr = startAddr + 15;
+                
+                Serial.print("  -> Initialized. Mapping to LocoNet Sensors: ");
+                Serial.print(startAddr);
+                Serial.print(" through ");
+                Serial.println(endAddr);
+
+                totalChipsFound++;
+            } else {
+                Serial.println("  -> Error: Found device, but initialization routine failed!");
+                delete pcaModules[totalChipsFound]; // Free memory block if broken
+                pcaModules[totalChipsFound] = nullptr;
+            }
+        }
+    }
+    
+    Serial.print("Scan complete. Total functional expanders configured: ");
+    Serial.println(totalChipsFound);
+}
+
+// Manages startup EEPROM loading and data integrity checks
+void initializeBaseAddress() {
+    EEPROM.get(EEPROM_BASE_ADDR_LOCATION, baseSensorAddress);
+
+    // Validate that loading address block won't bleed past maximum limits
+    if (baseSensorAddress == 0 || baseSensorAddress > 3900) {
+        Serial.println("EEPROM empty or corrupt. Setting default base address to 1.");
+        baseSensorAddress = DEFAULT_BASE_ADDRESS;
+        EEPROM.put(EEPROM_BASE_ADDR_LOCATION, baseSensorAddress);
+    } else {
+        Serial.print("Loaded Base Sensor Address from EEPROM: ");
+        Serial.println(baseSensorAddress);
+    }
+}
+
+// Parses configuration commands using toUpperCase format without loop delays
+void checkSerialForConfig() {
+    if (Serial.available() > 0) {
+        String input = Serial.readStringUntil('\n');
+        input.trim();
+
+        if (input.startsWith("<") && input.endsWith(">")) {
+            String command = input.substring(1, input.length() - 1);
+            command.trim();
+
+            String upperCommand = command;
+            upperCommand.toUpperCase();
+
+            if (upperCommand.startsWith("A")) {
+                String valStr = command.substring(1); 
+                valStr.trim(); 
+                
+                long newAddress = valStr.toInt();
+
+                if (newAddress >= 1 && newAddress <= 3900) {
+                    baseSensorAddress = (uint16_t)newAddress;
+                    EEPROM.put(EEPROM_BASE_ADDR_LOCATION, baseSensorAddress);
+                    
+                    Serial.print("SUCCESS: Base address updated to ");
+                    Serial.println(baseSensorAddress);
+                    Serial.println("Restarting board to rebuild layout configuration mappings...");
+                    Serial.flush();
+                    
+                    #if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega2560__)
+                        asm volatile ("jmp 0");  
+                    #endif
+                } else {
+                    Serial.println("ERROR: Invalid address range. Max base allowed for multi-mode is 3900.");
+                }
+            }
+        }
+    }
+}
+
+void transmitSensorReport(uint16_t address, bool active) {
+    Serial.print("address : ");
+    Serial.print(address);
+    Serial.println(active ? " on" : " off");
+
+    LocoNet.reportSensor(address, active ? 1 : 0);
+}
